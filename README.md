@@ -1,6 +1,12 @@
 # sberbank-acquiring-client [![Build Status](https://travis-ci.org/voronkovich/sberbank-acquiring-client.svg?branch=master)](https://travis-ci.org/voronkovich/sberbank-acquiring-client)
 
-PHP client for [Sberbank's acquiring](http://data.sberbank.ru/en/s_m_business/bankingservice/equairing/) REST API.
+PHP client for [Sberbank](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:start#%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81_rest) and [Alfabank](https://pay.alfabank.ru/ecommerce/instructions/merchantManual/pages/index/rest.html) REST API.
+
+## Requirements
+
+- PHP 7.1 or above (Old version for PHP 5 you can find [here](https://github.com/voronkovich/sberbank-acquiring-client/tree/1.x))
+- TLS 1.2 or above (more information you can find [here](https://civicrm.org/blog/yashodha/are-you-ready-for-tls-12-update-cant-escape-it))
+- `php-json` extension installed
 
 ## Installation
 
@@ -19,8 +25,15 @@ In most cases to instantiate a client you need to pass your username and passwor
 
 use Voronkovich\SberbankAcquiring\Client;
 
-/** @var Client $client */
-$client = new Client([ 'userName' => 'YourUserName', 'password' => 'YourPassword' ]);
+$client = new Client(['userName' => 'username', 'password' => 'password']);
+```
+Alternatively you can use an authentication token:
+```php
+<?php
+
+use Voronkovich\SberbankAcquiring\Client;
+
+$client = new Client(['token' => 'sberbank-token']);
 ```
 
 More advanced example:
@@ -30,12 +43,11 @@ More advanced example:
 
 use Voronkovich\SberbankAcquiring\Client;
 use Voronkovich\SberbankAcquiring\Currency;
+use Voronkovich\SberbankAcquiring\HttpClient\HttpClientInterface;
 
-/** @var Client $client */
 $client = new Client([
-    'userName' => 'userName',
+    'userName' => 'username',
     'password' => 'password',
-
     // A language code in ISO 639-1 format.
     // Use this option to set a language of error messages.
     'language' => 'ru',
@@ -50,7 +62,7 @@ $client = new Client([
 
     // An HTTP method to use in requests.
     // Must be "GET" or "POST" ("POST" is used by default).
-    'httpMethod' => 'GET',
+    'httpMethod' => HttpClientInterface::METHOD_GET,
 
     // An HTTP client for sending requests.
     // Use this option when you don't want to use
@@ -61,6 +73,24 @@ $client = new Client([
 ]);
 ```
 
+Example for Alphabank:
+
+```php
+<?php
+
+use Voronkovich\SberbankAcquiring\Client;
+
+$client = new Client([
+    'userName' => 'username',
+    'password' => 'password',
+    'apiUri' => 'https://web.rbsuat.com',
+    'prefixDefault' => '/ab/rest/',
+    'prefixApple' => '/ab/applepay/',
+    'prefixGoogle' => '/ab/google/',
+    'prefixSamsung' => '/ab/samsung/',
+]);
+```
+
 Also you can use an adapter for the [Guzzle](https://github.com/guzzle/guzzle):
 ```php
 <?php
@@ -68,18 +98,34 @@ Also you can use an adapter for the [Guzzle](https://github.com/guzzle/guzzle):
 use Voronkovich\SberbankAcquiring\Client;
 use Voronkovich\SberbankAcquiring\HttpClient\GuzzleAdapter;
 
-use GuzzleHttp\Client as Guzzle
+use GuzzleHttp\Client as Guzzle;
 
-/** @var Client $client */
-$client = new Client([
-    'userName' => 'userName',
+$client = new Client(
+    'userName' => 'username',
     'password' => 'password',
-
     'httpClient' => new GuzzleAdapter(new Guzzle()),
 ]);
 ```
 
+### Low level method "execute"
+
+You can interact with the Sberbank REST API using a low level method `execute`:
+```php
+$client->execute('/payment/rest/register.do', [ 
+    'orderNumber' => 1111,
+    'amount' => 10,
+    'returnUrl' => 'http://localhost/sberbank/success',
+]);
+
+$status = $client->execute('/payment/rest/getOrderStatusExtended.do', [
+    'orderId' => '64fc8831-a2b0-721b-64fc-883100001553',
+]);
+```
+But it's more convenient to use one of the shortcuts listed below.
+
 ### Creating a new order
+
+[/payment/rest/register.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:register)
 
 ```php
 <?php
@@ -87,8 +133,7 @@ $client = new Client([
 use Voronkovich\SberbankAcquiring\Client;
 use Voronkovich\SberbankAcquiring\Currency;
 
-/** @var Client $client */
-$client = new Client([ 'userName' => 'userName', 'password' => 'password' ]);
+$client = new Client(['userName' => 'username', 'password' => 'password']);
 
 // Required arguments
 $orderId     = 1234;
@@ -107,11 +152,20 @@ $paymentFormUrl = $result['formUrl'];
 header('Location: ' . $paymentFormUrl);
 ```
 
+If you want to use UUID identifiers ([ramsey/uuid](https://github.com/ramsey/uuid)) for orders you should convert them to a hex format:
+```php
+use Ramsey\Uuid\Uuid;
+
+$orderId = Uuid::uuid4();
+
+$result = $client->registerOrder($orderId->getHex(), $orderAmount, $returnUrl);
+```
+
 Use a `registerOrderPreAuth` method to create a 2-step order.
 
 ### Getting a status of an exising order
 
-**Never use this method**, because a Sberbank's gateway does'nt handle it properly, use a `getOrderStatusExtended` instead. For more information see a Sberbank's documentation.
+[/payment/rest/getOrderStatusExtended.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:getorderstatusextended)
 
 ```php
 <?php
@@ -119,28 +173,13 @@ Use a `registerOrderPreAuth` method to create a 2-step order.
 use Voronkovich\SberbankAcquiring\Client;
 use Voronkovich\SberbankAcquiring\OrderStatus;
 
-/** @var Client $client */
-$client = new Client([ 'userName' => 'userName', 'password' => 'password' ]);
+$client = new Client(['userName' => 'username', 'password' => 'password']);
 
 $result = $client->getOrderStatus($orderId);
 
 if (OrderStatus::isDeposited($result['orderStatus'])) {
     echo "Order #$orderId is deposited!";
 }
-```
-
-### Getting an extended status of an exising order
-
-```php
-<?php
-
-use Voronkovich\SberbankAcquiring\Client;
-use Voronkovich\SberbankAcquiring\OrderStatus;
-
-/** @var Client $client */
-$client = new Client([ 'userName' => 'userName', 'password' => 'password' ]);
-
-$result = $client->getOrderStatusExtended($orderId);
 
 if (OrderStatus::isDeclined($result['orderStatus'])) {
     echo "Order #$orderId was declined!";
@@ -149,28 +188,84 @@ if (OrderStatus::isDeclined($result['orderStatus'])) {
 
 ### Reversing an exising order
 
+[/payment/rest/reverse.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:reverse)
+
 ```php
 <?php
 
 use Voronkovich\SberbankAcquiring\Client;
 
-/** @var Client $client */
-$client = new Client([ 'userName' => 'userName', 'password' => 'password' ]);
+$client = new Client(['userName' => 'username', 'password' => 'password']);
 
 $result = $client->reverseOrder($orderId);
 ```
 
 ### Refunding an exising order
 
+[/payment/rest/refund.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:refund)
+
 ```php
 <?php
 
 use Voronkovich\SberbankAcquiring\Client;
 
-/** @var Client $client */
-$client = new Client([ 'userName' => 'userName', 'password' => 'password' ]);
+$client = new Client(['userName' => 'username', 'password' => 'password']);
 
 $result = $client->refundOrder($orderId, $amountToRefund);
+```
+
+### Apple Pay
+
+[/payment/applepay/payment.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:payment_applepay)
+
+```php
+<?php
+
+use Voronkovich\SberbankAcquiring\Client;
+
+$client = new Client(['userName' => 'username', 'password' => 'password']);
+
+$orderNumber = 777;
+$merchant = 'my_merchant';
+$paymentToken = 'token';
+
+$result = $client->payWithApplePay($orderNumber, $merchant, $paymentToken);
+```
+
+### Google Pay
+
+[/payment/google/payment.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:payment_googlepay)
+
+```php
+<?php
+
+use Voronkovich\SberbankAcquiring\Client;
+
+$client = new Client(['userName' => 'username', 'password' => 'password']);
+
+$orderNumber = 777;
+$merchant = 'my_merchant';
+$paymentToken = 'token';
+
+$result = $client->payWithGooglePay($orderNumber, $merchant, $paymentToken);
+```
+
+### Samsung Pay
+
+[/payment/samsung/payment.do](https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:payment_samsungpay)
+
+```php
+<?php
+
+use Voronkovich\SberbankAcquiring\Client;
+
+$client = new Client(['userName' => 'username', 'password' => 'password']);
+
+$orderNumber = 777;
+$merchant = 'my_merchant';
+$paymentToken = 'token';
+
+$result = $client->payWithSamsungPay($orderNumber, $merchant, $paymentToken);
 ```
 
 ---
